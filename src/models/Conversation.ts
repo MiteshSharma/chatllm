@@ -26,9 +26,6 @@ export class Conversation {
   @JoinColumn({ name: "model_id" })
   model: Model;
 
-  @Column({ name: "endpoint_id", type: "varchar", length: 100, nullable: true })
-  endpointId: string;
-
   @Column({ name: "title", type: "varchar", length: 255, default: "New Conversation" })
   title: string;
 

@@ -15,7 +15,6 @@ export class CreateConversationMessageTables1712940000000 implements MigrationIn
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 user_id UUID,
                 model_id UUID REFERENCES models(id) ON DELETE SET NULL,
-                endpoint_id VARCHAR(100),
                 title VARCHAR(255) DEFAULT 'New Conversation',
                 system_message TEXT,
                 message_count INTEGER DEFAULT 0,
