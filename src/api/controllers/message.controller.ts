@@ -53,25 +53,7 @@ export class MessageController {
             await this.messageService.saveUserMessage(messageRequest, userId);
           
           // Process streaming agent
-          this.agentService.processAgentMessage(
-            conversation,
-            userMessage,
-            {
-              temperature: messageRequest.options?.temperature,
-              modelName: messageRequest.model,
-              stream: true
-            },
-            // Stream text chunks
-            (chunk: string) => {
-              res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
-            },
-            // Stream tool executions
-            (tool: string, input: any, output: string) => {
-              res.write(`data: ${JSON.stringify({ 
-                toolExecution: { tool, input, output } 
-              })}\n\n`);
-            }
-          ).then(finalResponse => {
+          this.agentService.processAgentMessage(userMessage).then(finalResponse => {
             // Send final message with complete response data
             res.write(`data: ${JSON.stringify({ 
               ...this.formatAgentResponse(finalResponse, conversation),
@@ -113,14 +95,7 @@ export class MessageController {
         const { conversation, isNewConversation, userMessage } = 
           await this.messageService.saveUserMessage(messageRequest, userId);
         
-        const agentResponse = await this.agentService.processAgentMessage(
-          conversation,
-          userMessage,
-          {
-            temperature: messageRequest.options?.temperature,
-            modelName: messageRequest.model
-          }
-        );
+        const agentResponse = await this.agentService.processAgentMessage(userMessage);
         
         res.status(200).json(this.formatAgentResponse(agentResponse, conversation));
       } else {

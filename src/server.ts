@@ -17,6 +17,7 @@ import { registerRoutes } from "./api";
 import { errorHandler } from "./api/middleware/error-handler";
 import { logger } from "./utils/logger/winston-logger";
 import { ToolInitService } from "./services/ToolInitService";
+import { OpenAPIToolsService } from "./services/OpenAPIToolsService";
 
 // Load environment variables
 config();
@@ -68,6 +69,10 @@ async function startServer() {
     // Initialize agent tools
     const toolInitService = new ToolInitService();
     await toolInitService.initializeTools();
+    
+    // Load OpenAPI spec tools
+    const openAPIToolsService = new OpenAPIToolsService();
+    await openAPIToolsService.loadAllSpecs();
     
     // Start the server
     const PORT = process.env.PORT || 3000;

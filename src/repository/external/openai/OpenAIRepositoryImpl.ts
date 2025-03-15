@@ -4,6 +4,7 @@ import { LLMMessage, LLMRequestOptions } from "../../../domain/llm/LLMClient";
 import { config } from "../../../utils/config";
 import { logger } from "../../../utils/logger/winston-logger";
 import { OpenAI } from "openai";
+import { formatToolsForOpenAI } from "../../../utils/openai-tools";
 
 export class OpenAIRepositoryImpl implements OpenAIRepository {
   private client: OpenAI;
@@ -32,18 +33,40 @@ export class OpenAIRepositoryImpl implements OpenAIRepository {
         options
       });
 
+      if (options.functions && options.functions?.length > 0) {
+        logger.info(`Preparing to send ${options.functions?.length ?? 0} functions to OpenAI API`, {
+          functionNames: (options.functions ?? []).map((f: any) => f.name)
+        });
+      }
+
+      const payload: any = {
+        model,
+        messages,
+        temperature: options.temperature || 0.7,
+        top_p: options.topP || 1.0,
+        presence_penalty: options.presencePenalty || 0,
+        frequency_penalty: options.frequencyPenalty || 0,
+        max_tokens: options.maxTokens || 2048,
+        stream: false
+      };
+      
+      if (options.functions && options.functions.length > 0) {
+        // Format tools for OpenAI API
+        const formattedFunctions = formatToolsForOpenAI(options.functions);
+        payload.functions = formattedFunctions;
+        payload.function_call = "auto";
+        
+        logger.info(`Prepared ${formattedFunctions.length} functions for OpenAI API`, {
+          functionNames: formattedFunctions.map((f: any) => f.name)
+        });
+      }
+
+      logger.info(`Payload:::: ${JSON.stringify(payload)}`);
+      
+      
       const response = await axios.post(
         "https://api.openai.com/v1/chat/completions",
-        {
-          model,
-          messages,
-          temperature: options.temperature || 0.7,
-          top_p: options.topP || 1.0,
-          presence_penalty: options.presencePenalty || 0,
-          frequency_penalty: options.frequencyPenalty || 0,
-          max_tokens: options.maxTokens || 2048,
-          stream: false
-        },
+        payload,
         {
           headers: {
             "Content-Type": "application/json",
@@ -53,12 +76,15 @@ export class OpenAIRepositoryImpl implements OpenAIRepository {
       );
 
       const result = response.data;
+
+      logger.info(`RESPONSE:::: ${JSON.stringify(result)}`);
       
       return {
         content: result.choices[0].message.content,
         finishReason: result.choices[0].finish_reason,
         model,
-        rawUsage: result.usage
+        rawUsage: result.usage,
+        rawResponse: result
       };
     } catch (error: unknown) {
       const err = error as Error;

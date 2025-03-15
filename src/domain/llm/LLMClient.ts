@@ -10,6 +10,7 @@ export interface LLMTokenUsage {
 export interface LLMMessage {
   role: string;
   content: string;
+  name?: string;
 }
 
 export interface LLMRequestOptions {
@@ -19,6 +20,11 @@ export interface LLMRequestOptions {
   frequencyPenalty?: number;
   maxTokens?: number;
   stream?: boolean;
+  functions?: Array<{
+    name: string;
+    description?: string;
+    parameters?: Record<string, any>;
+  }>;
 }
 
 export interface LLMResponse {

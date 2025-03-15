@@ -8,6 +8,9 @@ import { MessageRepository } from "../repository/database/MessageRepository";
 import { MessageRepositoryImpl } from "../repository/database/MessageRepositoryImpl";
 import { LLMClientFactory } from "../domain/llm/LLMClientFactory";
 import { LLMRequestOptions } from "../domain/llm/LLMClient";
+import { FunctionsWrapper } from "../domain/agent/FunctionsWrapper";
+import { ConversationRepository } from "../repository/database/ConversationRepository";
+import { ConversationRepositoryImpl } from "../repository/database/ConversationRepositoryImpl";
 
 export interface AgentOptions {
   temperature?: number;
@@ -18,180 +21,206 @@ export interface AgentOptions {
 export class AgentService {
   private toolRegistry: ToolRegistry;
   private messageRepository: MessageRepository;
+  private conversationRepository: ConversationRepository;
   
   constructor() {
     this.toolRegistry = ToolRegistry.getInstance();
     this.messageRepository = new MessageRepositoryImpl();
+    this.conversationRepository = new ConversationRepositoryImpl();
   }
   
-  async processAgentMessage(
-    conversation: Conversation,
-    userMessage: Message,
-    options: AgentOptions,
-    onChunk?: (chunk: string) => void,
-    onToolExecution?: (tool: string, input: any, output: string) => void
-  ): Promise<Message> {
+  async processAgentMessage(message: Message): Promise<Message> {
     try {
-      logger.info("Processing agent message", {
-        conversationId: conversation.id,
-        messageId: userMessage.id
+      logger.info(`Processing agent message`, {
+        conversationId: message.conversationId,
+        messageId: message.id
       });
+
+      // Create a placeholder assistant message
+      const response = await this.createPlaceholderResponse(message);
       
-      // Select tools based on options
-      const tools = this.getToolsForAgent();
-      
-      if (tools.length === 0) {
-        logger.warn("No tools available for agent", { options });
+      // Get conversation history
+      const conversation = await this.conversationRepository.findById(message.conversationId);
+      if (!conversation) {
+        throw new Error(`Conversation not found: ${message.conversationId}`);
       }
       
-      // Create empty agent result message
-      const agentMessage = await this.messageRepository.create({
-        conversationId: conversation.id,
-        role: MessageRole.ASSISTANT,
-        content: "",
-        parentMessageId: userMessage.id,
-        metadata: {
-          isAgentResponse: true,
-          toolCallIds: []  // Will be populated as tools are called
-        }
+      const messages = await this.messageRepository.findByConversationId(conversation.id);
+
+      // Initialize LLM client
+      const model = this.getModelForConversation(conversation);
+      const llmClient = LLMClientFactory.createClient(model);
+
+      // Prepare functions/tools for the agent
+      const availableTools = this.toolRegistry.getAllTools();
+      
+      logger.info(`Agent has ${availableTools.length} tools available`, {
+        toolNames: availableTools.map(t => t.name)
       });
       
-      // Get conversation history for LLM prompt
-      const messages = await this.messageRepository.findByConversationId(conversation.id);
+      // Convert tools to functions format
+      const functions = availableTools.map(tool => {
+        // Extract the tool schema if it exists
+        let parameters = {};
+        if ('schema' in tool) {
+          // For structured tools that have a schema
+          parameters = tool.schema;
+        }
+
+        return {
+          name: tool.name,
+          description: tool.description,
+          parameters
+        };
+      });
       
-      // Get LLM client
-      const llmClient = LLMClientFactory.createClient(options.modelName || "gpt-4");
+      // Wrap functions
+      const functionsWrapper = new FunctionsWrapper(functions);
       
-      // Configure LLM options
-      const llmOptions: LLMRequestOptions = {
-        temperature: options.temperature,
-        stream: options.stream
-      };
-      
-      // Create tools wrapper for LLM
-      const functionsWrapper = {
-        functions: tools.map(t => ({
-          name: t.name,
-          description: t.description,
-          parameters: t.schema
-        }))
-      };
-      
-      // Build conversation history
-      const history = this.buildConversationHistory(messages, userMessage);
-      
-      // Initialize prompt
-      const systemPrompt = "You are a helpful AI assistant that can use tools to answer questions.";
-      const fullPrompt = [
-        { role: "system", content: systemPrompt },
-        ...history,
-        { role: "user", content: userMessage.content }
-      ];
-      
-      // Execute the request with tools
-      const result = await llmClient.generateResponseWithTools(
-        fullPrompt, 
-        functionsWrapper, 
-        llmOptions
+      // Process with tools recursively until we get a final response
+      const finalResponse = await this.processWithToolsRecursively(
+        llmClient,
+        messages,
+        message,
+        conversation,
+        functionsWrapper
       );
       
-      // Process tool calls and build response
-      const toolCallIds: string[] = [];
-      
-      // Handle tool executions
-      for (const toolCall of result.toolCalls || []) {
-        // Create tool call message
-        const toolCallMessage = await this.messageRepository.create({
-          conversationId: conversation.id,
-          role: MessageRole.ASSISTANT,
-          content: `Calling tool: ${toolCall.name}`,
-          parentMessageId: agentMessage.id,
-          metadata: {
-            isToolCall: true,
-            toolName: toolCall.name,
-            toolInput: toolCall.arguments
-          }
-        });
-        
-        // Add to the list of tool call IDs
-        toolCallIds.push(toolCallMessage.id);
-        
-        // Execute tool and get result
-        const tool = this.toolRegistry.getTool(toolCall.name);
-        let toolResult = "";
-        
-        if (tool) {
-          try {
-            toolResult = await tool.invoke(toolCall.arguments);
-          } catch (error) {
-            toolResult = `Error executing tool: ${(error as Error).message}`;
-          }
-        } else {
-          toolResult = `Tool '${toolCall.name}' not found`;
-        }
-        
-        // Create tool result message
-        await this.messageRepository.create({
-          conversationId: conversation.id,
-          role: MessageRole.TOOL,
-          content: toolResult,
-          parentMessageId: toolCallMessage.id,
-          metadata: {
-            toolName: toolCall.name,
-            toolInput: toolCall.arguments
-          }
-        });
-        
-        if (onToolExecution) {
-          onToolExecution(toolCall.name, toolCall.arguments, toolResult);
-        }
-      }
-      
-      // Update the assistant message with the final result and metadata
-      await this.messageRepository.update(agentMessage.id, {
-        content: result.content,
-        metadata: {
-          isAgentResponse: true,
-          toolCallIds
-        }
-      });
-      
-      // Refresh the message to get the updated content
-      const updatedAgentMessage = await this.messageRepository.findById(agentMessage.id);
-      
-      if (!updatedAgentMessage) {
-        throw new Error("Failed to retrieve updated agent message");
-      }
-      
-      return updatedAgentMessage;
-      
+      // Update the response with the final content
+      response.content = finalResponse;
+      const savedResponse = await this.messageRepository.create(response);
+      return savedResponse;
     } catch (error) {
-      logger.error("Error processing agent message", {
+      logger.error(`Error processing agent message`, {
         error: (error as Error).message,
-        conversationId: conversation.id,
-        messageId: userMessage.id
+        conversationId: message.conversationId,
+        messageId: message.id
       });
-      
       throw new Error(`Agent error: ${(error as Error).message}`);
     }
   }
   
-  private getToolsForAgent(): Tool[] {
-    // Return all available tools
-    return this.toolRegistry.getAllTools();
+  private async processWithToolsRecursively(
+    llmClient: LLMClient,
+    messages: Message[],
+    currentMessage: Message,
+    conversation: Conversation,
+    functionsWrapper: FunctionsWrapper,
+    toolResults: Array<{toolName: string, result: string}> = []
+  ): Promise<string> {
+    // Prepare conversation history for LLM
+    const llmMessages = llmClient.prepareConversationHistory(
+      conversation, 
+      messages, 
+      currentMessage
+    );
+    
+    // Add tool results if any
+    for (const toolResult of toolResults) {
+      llmMessages.push({
+        role: 'function',
+        content: toolResult.result,
+        name: toolResult.toolName
+      });
+    }
+    
+    // Get conversation settings or default options
+    const options = this.getConversationOptions(conversation);
+    
+    // Call LLM with tools
+    const response = await llmClient.generateResponseWithTools(
+      llmMessages,
+      functionsWrapper,
+      options
+    );
+    
+    // Check if there are tool calls in the response
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      const toolCall = response.toolCalls[0]; // Handle first tool call for now
+      
+      logger.info(`Executing tool: ${toolCall.name}`, {
+        toolName: toolCall.name,
+        arguments: toolCall.arguments
+      });
+      
+      // Find the tool in registry
+      const toolRegistry = ToolRegistry.getInstance();
+      const tool = toolRegistry.getTool(toolCall.name);
+      
+      if (!tool) {
+        logger.error(`Tool not found: ${toolCall.name}`);
+        return Promise.resolve(`I tried to use ${toolCall.name} but couldn't find that tool. ${response.content || ''}`);
+      }
+      
+      try {
+        // Execute the tool
+        const result = await tool.call(toolCall.arguments);
+        
+        logger.info(`Tool execution result`, {
+          toolName: toolCall.name,
+          resultPreview: typeof result === 'string' 
+            ? result.substring(0, 100) 
+            : JSON.stringify(result).substring(0, 100)
+        });
+        
+        // Add this result to tool results
+        const newToolResults = [
+          ...toolResults,
+          { toolName: toolCall.name, result: JSON.stringify(result) }
+        ];
+        
+        // Recursive call with updated tool results
+        return this.processWithToolsRecursively(
+          llmClient,
+          messages,
+          currentMessage,
+          conversation,
+          functionsWrapper,
+          newToolResults
+        );
+      } catch (error) {
+        logger.error(`Tool execution error: ${(error as Error).message}`, {
+          toolName: toolCall.name,
+          error
+        });
+        
+        return Promise.resolve(`I tried to use ${toolCall.name} but encountered an error: ${(error as Error).message}. ${response.content || ''}`);
+      }
+    }
+    
+    // If no tool calls, return the content as the final response
+    return Promise.resolve(response.content || "I processed your request but couldn't generate a response.");
   }
   
-  private buildConversationHistory(
-    messages: Message[],
-    currentMessage: Message
-  ): { role: string, content: string }[] {
-    // Filter out current message
-    const filteredMessages = messages.filter(msg => msg.id !== currentMessage.id);
+  private createPlaceholderResponse(message: Message): Promise<Message> {
+    const response = new Message();
+    response.conversationId = message.conversationId;
+    response.parentMessageId = message.id;
+    response.role = MessageRole.ASSISTANT;
+    response.content = ""; // Empty content initially
+    response.metadata = {
+      isAgentResponse: true,
+      toolCallIds: []
+    };
     
-    // Convert to LangChain format
-    return filteredMessages.map(msg => ({
-      role: msg.role.toLowerCase(),
-      content: msg.content
-    }));
+    return this.messageRepository.create(response);
+  }
+  
+  private getConversationOptions(conversation: Conversation): LLMRequestOptions {
+    const settings = conversation.settings || {};
+    
+    return {
+      temperature: settings.temperature ?? 0.7,
+      topP: settings.topP ?? 1.0,
+      presencePenalty: settings.presencePenalty ?? 0,
+      frequencyPenalty: settings.frequencyPenalty ?? 0,
+      maxTokens: settings.maxTokens ?? 1024
+    };
+  }
+  
+  private getModelForConversation(conversation: Conversation): string {
+    // Implement the logic to determine the appropriate model for a conversation
+    // This is a placeholder and should be replaced with the actual implementation
+    return "gpt-4";
   }
 } 

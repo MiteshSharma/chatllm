@@ -6,6 +6,7 @@ import { Conversation } from "../../models/Conversation";
 import { OpenAIRepository, OpenAIRepositoryImpl } from "../../repository/external";
 import { config } from "../../utils/config";
 import { SimpleTokenCalculator } from "./SimpleTokenCalculator";
+import { FunctionsWrapper } from "../../models/FunctionsWrapper";
 
 export class ChatGPTClient implements LLMClient {
   private readonly apiKey: string;
@@ -200,7 +201,7 @@ export class ChatGPTClient implements LLMClient {
    */
   async generateResponseWithTools(
     messages: LLMMessage[],
-    toolsConfig: any,
+    functionsWrapper: FunctionsWrapper,
     options?: LLMRequestOptions
   ): Promise<{
     content: string;
@@ -209,33 +210,76 @@ export class ChatGPTClient implements LLMClient {
       arguments: any;
     }>;
   }> {
+    // Add detailed logging at the beginning of the method
+    logger.info(`Generating response with ${functionsWrapper.functions.length} tools available`, {
+      toolNames: functionsWrapper.functions.map((f: { name: string }) => f.name),
+      toolDetails: functionsWrapper.functions.map((f: { name: string, description?: string }) => ({
+        name: f.name,
+        description: f.description?.substring(0, 50) + (f.description?.length ?? 0 > 50 ? '...' : '')
+      }))
+    });
+
     try {
-      // Use a custom option to tell the repository to return function calls
       const requestOptions = {
         ...options,
-        functions: toolsConfig.functions,
-        returnFunctionCalls: true // Add if your repository supports this
+        functions: functionsWrapper.functions,
+        returnFunctionCalls: true
       };
       
-      // Call the repository with the custom option
       const response = await this.openAIRepository.createChatCompletion(
         this.model,
         messages,
         requestOptions
       );
 
-      // For now, just return the content without tool calls
-      // Since we can't access them with the current implementation
+      // Check if the API response contains a function call
+      const functionCall = this.extractFunctionCall(response);
+      
+      if (functionCall) {
+        logger.info(`Function call detected: ${functionCall.name}`, {
+          name: functionCall.name,
+          arguments: functionCall.arguments
+        });
+        
+        return {
+          content: response.content || "",
+          toolCalls: [{
+            name: functionCall.name,
+            arguments: functionCall.arguments
+          }]
+        };
+      }
+      
+      // If no function call, just return the content
       return {
         content: response.content || ""
-        // No toolCalls for now until repository is updated
       };
     } catch (error) {
-      logger.error("Error generating response with tools", {
-        error: (error as Error).message,
-        model: this.model
+      // Log errors with tool execution
+      logger.error(`Error generating response with tools: ${(error as Error).message}`, {
+        error: error,
+        availableTools: functionsWrapper.functions.map((f: { name: string }) => f.name)
       });
       throw new Error(`Failed to generate response with tools: ${(error as Error).message}`);
     }
+  }
+
+  // Helper method to extract function calls from OpenAI response
+  private extractFunctionCall(response: any): { name: string; arguments: any } | null {
+    // Check raw response data if available
+    if (response.rawResponse && 
+        response.rawResponse.choices && 
+        response.rawResponse.choices[0] && 
+        response.rawResponse.choices[0].message && 
+        response.rawResponse.choices[0].message.function_call) {
+      
+      const functionCall = response.rawResponse.choices[0].message.function_call;
+      return {
+        name: functionCall.name,
+        arguments: JSON.parse(functionCall.arguments || '{}')
+      };
+    }
+    
+    return null;
   }
 } 

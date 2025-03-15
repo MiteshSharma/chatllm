@@ -24,7 +24,8 @@
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/repository/config.ts",
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/repository/config.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/infrastructure/database/config.ts",
-    "migration:show": "typeorm-ts-node-commonjs migration:show -d src/repository/config.ts"
+    "migration:show": "typeorm-ts-node-commonjs migration:show -d src/repository/config.ts",
+    "db:seed": "ts-node src/scripts/seed-models.ts"
   },
   "dependencies": {
     "@langchain/core": "^0.3.42",
@@ -42,6 +43,7 @@
     "langchain": "^0.3.19",
     "mathjs": "^14.3.1",
     "morgan": "^1.10.0",
+    "openapi3-ts": "^4.4.0",
     "pg": "^8.14.0",
     "reflect-metadata": "^0.2.2",
     "swagger-jsdoc": "^6.2.8",

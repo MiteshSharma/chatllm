@@ -9,6 +9,7 @@ export interface OpenAIRawResponse {
     completion_tokens: number;
     total_tokens: number;
   };
+  rawResponse?: any;
 }
 
 export interface OpenAIRepository {
