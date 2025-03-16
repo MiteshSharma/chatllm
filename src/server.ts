@@ -62,6 +62,7 @@ console.log("Database config:", {
 
 async function startServer() {
   try {
+    
     // Initialize DB connection
     await AppDataSource.initialize();
     logger.info("Database connection established");
@@ -79,6 +80,7 @@ async function startServer() {
     app.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);
     });
+
   } catch (error) {
     logger.error("Error starting server", {
       error: (error as Error).message,

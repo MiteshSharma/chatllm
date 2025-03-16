@@ -1,5 +1,9 @@
 import { Tool } from "@langchain/core/tools";
 import { logger } from "../../utils/logger/winston-logger";
+import { OpenAPIService } from '../../services/OpenAPIService';
+import { CalculatorTool } from './tools/CalculatorTool';
+import { EchoTool } from './tools/EchoTool';
+import { OpenAPISpecRepository } from '../../repository/database/OpenAPISpecRepository';
 
 /**
  * Registry for managing agent tools
@@ -7,14 +11,37 @@ import { logger } from "../../utils/logger/winston-logger";
 export class ToolRegistry {
   private static instance: ToolRegistry;
   private tools: Map<string, Tool> = new Map();
+  private openAPIService: OpenAPIService;
   
-  private constructor() {}
+  private constructor() {
+    this.openAPIService = new OpenAPIService(new OpenAPISpecRepository());
+    this.registerDefaultTools();
+    this.registerOpenAPITools().catch(error => {
+      logger.error("Failed to register OpenAPI tools", { error: error.message });
+    });
+  }
   
   public static getInstance(): ToolRegistry {
     if (!ToolRegistry.instance) {
       ToolRegistry.instance = new ToolRegistry();
     }
     return ToolRegistry.instance;
+  }
+  
+  private registerDefaultTools(): void {
+    this.registerTool(new CalculatorTool());
+    this.registerTool(new EchoTool());
+  }
+  
+  private async registerOpenAPITools(): Promise<void> {
+    const openAPISpecs = await this.openAPIService.getAllOpenAPISpecs();
+    
+    for (const spec of openAPISpecs) {
+      const tools = this.openAPIService.createToolsFromSpec(spec);
+      for (const tool of tools) {
+        this.registerTool(tool);
+      }
+    }
   }
   
   /**
@@ -47,5 +74,28 @@ export class ToolRegistry {
       if (!tool.metadata?.tags) return false;
       return tags.some(tag => (tool.metadata?.tags as string[]).includes(tag));
     });
+  }
+  
+  // Method to register a new OpenAPI spec and create tools from it
+  async registerOpenAPISpec(spec: any): Promise<Tool[]> {
+    const openAPISpec = await this.openAPIService.registerOpenAPISpec(spec);
+    const tools = this.openAPIService.createToolsFromSpec(openAPISpec);
+    
+    for (const tool of tools) {
+      this.registerTool(tool);
+    }
+    
+    return tools;
+  }
+  
+  public async refreshMCPTools(): Promise<void> {
+    // Clear existing MCP tools
+    for (const [name, tool] of this.tools.entries()) {
+      if (name.startsWith('file-directory')) {
+        this.tools.delete(name);
+      }
+    }
+    
+    logger.info(`Refreshed MCP tools, total tools: ${this.tools.size}`);
   }
 } 

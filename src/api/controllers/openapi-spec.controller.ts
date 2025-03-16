@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { OpenAPISpecRepository } from "../../repository/database/OpenAPISpecRepository";
 import { OpenAPIToolsService } from "../../services/OpenAPIToolsService";
 import { logger } from "../../utils/logger/winston-logger";
+import { ToolRegistry } from '../../domain/agent/ToolRegistry';
 
 export class OpenAPISpecController {
   private repository: OpenAPISpecRepository;
@@ -16,7 +17,7 @@ export class OpenAPISpecController {
     try {
       const specs = await this.repository.findAll();
       res.json(specs);
-    } catch (error) {
+    } catch (error: any) {
       next(error);
     }
   }
@@ -31,7 +32,7 @@ export class OpenAPISpecController {
       }
       
       res.json(spec);
-    } catch (error) {
+    } catch (error: any) {
       next(error);
     }
   }
@@ -41,8 +42,10 @@ export class OpenAPISpecController {
       // Validate that the spec is valid JSON
       try {
         JSON.parse(req.body.specContent);
-      } catch (e) {
-        res.status(400).json({ message: "Invalid OpenAPI specification: must be valid JSON" });
+      } catch (e: any) {
+        res.status(400).json({
+          message: e.message || 'An error occurred'
+        });
         return;
       }
       
@@ -59,8 +62,8 @@ export class OpenAPISpecController {
       await this.service.loadSpec(spec.id);
       
       res.status(201).json(spec);
-    } catch (error) {
-      logger.error("Error creating OpenAPI spec", { error: (error as Error).message });
+    } catch (error: any) {
+      logger.error("Error creating OpenAPI spec", { error: error.message || 'Unknown error' });
       next(error);
     }
   }
@@ -78,8 +81,10 @@ export class OpenAPISpecController {
       if (req.body.specContent) {
         try {
           JSON.parse(req.body.specContent);
-        } catch (e) {
-          res.status(400).json({ message: "Invalid OpenAPI specification: must be valid JSON" });
+        } catch (e: any) {
+          res.status(400).json({
+            message: e.message || 'An error occurred'
+          });
           return;
         }
       }
@@ -99,7 +104,7 @@ export class OpenAPISpecController {
       }
       
       res.json(updatedSpec);
-    } catch (error) {
+    } catch (error: any) {
       next(error);
     }
   }
@@ -114,7 +119,7 @@ export class OpenAPISpecController {
       }
       
       res.status(204).send();
-    } catch (error) {
+    } catch (error: any) {
       next(error);
     }
   }
@@ -129,8 +134,28 @@ export class OpenAPISpecController {
       }
       
       res.json({ message: "OpenAPI specification reloaded successfully" });
-    } catch (error) {
+    } catch (error: any) {
       next(error);
+    }
+  }
+  
+  async createOpenAPISpec(req: Request, res: Response): Promise<void> {
+    try {
+      const specData = req.body;
+      
+      // Register the spec with the tool registry
+      const toolRegistry = ToolRegistry.getInstance();
+      const tools = await toolRegistry.registerOpenAPISpec(specData);
+      
+      res.status(201).json({
+        message: 'OpenAPI specification registered successfully',
+        toolCount: tools.length,
+        tools: tools.map(tool => tool.name)
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        message: error.message || 'An error occurred'
+      });
     }
   }
 } 

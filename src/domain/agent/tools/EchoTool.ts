@@ -1,22 +1,22 @@
-import { DynamicStructuredTool } from "@langchain/core/tools";
+import { Tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { logger } from "../../../utils/logger/winston-logger";
 
-export class EchoTool extends DynamicStructuredTool {
-  constructor() {
-    super({
-      name: "echo",
-      description: "Echoes back the input text",
-      schema: z.object({
-        text: z.string().describe("The text to echo back")
-      }),
-      func: async ({ text }: { text: string }): Promise<string> => {
-        logger.info("EchoTool called", { input: text });
-        return text;
-      },
-      metadata: {
-        tags: ["utility", "debug"]
-      }
-    });
+export class EchoTool extends Tool {
+  name = "echo";
+  description = "Echoes back the input text";
+  
+  // Update schema to match expected ZodEffects type
+  schema = z.object({
+    input: z.string().optional().describe("The text to echo back"),
+  }).transform((val) => val.input);
+  
+  async _call(input: string): Promise<string> {
+    logger.info("EchoTool called", { input: input });
+    return input;
   }
+
+  metadata = {
+    tags: ["utility", "debugging"]
+  };
 } 

@@ -7,7 +7,7 @@ import { MessageRole } from "../models/MessageRole";
 import { MessageRepository } from "../repository/database/MessageRepository";
 import { MessageRepositoryImpl } from "../repository/database/MessageRepositoryImpl";
 import { LLMClientFactory } from "../domain/llm/LLMClientFactory";
-import { LLMRequestOptions } from "../domain/llm/LLMClient";
+import { LLMClient, LLMRequestOptions } from "../domain/llm/LLMClient";
 import { FunctionsWrapper } from "../domain/agent/FunctionsWrapper";
 import { ConversationRepository } from "../repository/database/ConversationRepository";
 import { ConversationRepositoryImpl } from "../repository/database/ConversationRepositoryImpl";
@@ -31,9 +31,10 @@ export class AgentService {
   
   async processAgentMessage(message: Message): Promise<Message> {
     try {
-      logger.info(`Processing agent message`, {
+      logger.info(`Processing agent message with agent mode: ${message.agentMode}`, {
         conversationId: message.conversationId,
-        messageId: message.id
+        messageId: message.id,
+        agentMode: message.agentMode
       });
 
       // Create a placeholder assistant message
