@@ -18,6 +18,9 @@ import { errorHandler } from "./api/middleware/error-handler";
 import { logger } from "./utils/logger/winston-logger";
 import { ToolInitService } from "./services/ToolInitService";
 import { OpenAPIToolsService } from "./services/OpenAPIToolsService";
+import { ToolRegistry } from "./domain/agent/ToolRegistry";
+import { MCPToolRegistry } from "./domain/agent/tools/MCPTool";
+import { MCPStartupService } from "./services/MCPStartupService";
 
 // Load environment variables
 config();
@@ -74,11 +77,21 @@ async function startServer() {
     // Load OpenAPI spec tools
     const openAPIToolsService = new OpenAPIToolsService();
     await openAPIToolsService.loadAllSpecs();
+
+    const registry = MCPToolRegistry.getInstance();
+    const mcpTools = await registry.createLangChainTools();
+
+    // Register tools with the tool registry
+    ToolRegistry.getInstance().registerTools(mcpTools);
     
+    // Add after database initialization
+    const mcpStartupService = new MCPStartupService();
+    await mcpStartupService.initializeServers();
+
     // Start the server
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-      logger.info(`Server running on port ${PORT}`);
+    app.listen(port, () => {
+      logger.info(`Server running on port ${port}`);
+      app.emit('ready');
     });
 
   } catch (error) {

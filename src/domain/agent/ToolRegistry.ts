@@ -56,6 +56,7 @@ export class ToolRegistry {
    * Get a tool by name
    */
   public getTool(name: string): Tool | undefined {
+    logger.info(`[ToolRegistry] Get tool ${name}: ${JSON.stringify(this.tools.get(name))}`);
     return this.tools.get(name);
   }
   
@@ -87,15 +88,10 @@ export class ToolRegistry {
     
     return tools;
   }
-  
-  public async refreshMCPTools(): Promise<void> {
-    // Clear existing MCP tools
-    for (const [name, tool] of this.tools.entries()) {
-      if (name.startsWith('file-directory')) {
-        this.tools.delete(name);
-      }
+
+  public registerTools(tools: Tool[]): void {
+    for (const tool of tools) {
+      this.registerTool(tool);
     }
-    
-    logger.info(`Refreshed MCP tools, total tools: ${this.tools.size}`);
   }
 } 

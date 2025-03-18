@@ -11,6 +11,7 @@ import { LLMClient, LLMRequestOptions } from "../domain/llm/LLMClient";
 import { FunctionsWrapper } from "../domain/agent/FunctionsWrapper";
 import { ConversationRepository } from "../repository/database/ConversationRepository";
 import { ConversationRepositoryImpl } from "../repository/database/ConversationRepositoryImpl";
+import { MCPToolRegistry } from '../domain/agent/tools/MCPTool';
 
 export interface AgentOptions {
   temperature?: number;
@@ -152,10 +153,24 @@ export class AgentService {
         logger.error(`Tool not found: ${toolCall.name}`);
         return Promise.resolve(`I tried to use ${toolCall.name} but couldn't find that tool. ${response.content || ''}`);
       }
+
+      logger.info(`Tool found: ${toolCall.name}`, {
+        tool: tool
+      });
       
       try {
+        // Prepare the arguments
+        let parsedArgs;
+        try {
+          parsedArgs = typeof toolCall.arguments === 'string' 
+            ? JSON.parse(toolCall.arguments) 
+            : toolCall.arguments;
+        } catch (e) {
+          parsedArgs = toolCall.arguments;
+        }
+        
         // Execute the tool
-        const result = await tool.call(toolCall.arguments);
+        const result = await tool.invoke(parsedArgs);
         
         logger.info(`Tool execution result`, {
           toolName: toolCall.name,
@@ -224,4 +239,5 @@ export class AgentService {
     // This is a placeholder and should be replaced with the actual implementation
     return "gpt-4";
   }
+
 } 

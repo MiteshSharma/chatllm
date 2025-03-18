@@ -9,6 +9,7 @@ import { ModelRequiredRole } from "../models/ModelRequiredRole";
 import { ModelSupportedEndpoint } from "../models/ModelSupportedEndpoint";
 import { SnakeNamingStrategy } from "typeorm-naming-strategies";
 import { OpenAPISpec } from "../models/OpenAPISpec";
+import { MCPServer } from "../models/MCPServer";
 
 
 export const AppDataSource = new DataSource({
@@ -28,7 +29,8 @@ export const AppDataSource = new DataSource({
     ModelCapability,
     ModelRequiredRole,
     ModelSupportedEndpoint,
-    OpenAPISpec
+    OpenAPISpec,
+    MCPServer
   ],
   migrations: ["src/migrations/*.ts"],
   subscribers: [],
